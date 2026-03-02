@@ -8,7 +8,7 @@ from datetime import datetime
 # 設定
 # -----------------------------
 TOKEN = os.getenv("TOKEN")
-GUILD_ID = 123456789012345678  # 対象サーバーIDに置き換え
+GUILD_ID = 1237998527981031456  # 対象サーバーIDに置き換え
 RANKING_CHANNEL_ID = 1477729380556865750  # ランキング送信先チャンネルID
 
 intents = discord.Intents.all()
@@ -101,7 +101,7 @@ async def send_rankings(channel):
     sorted_teams = sorted(team_points.items(), key=lambda x: x[1], reverse=True)
     sorted_users = sorted(user_points.items(), key=lambda x: x[1], reverse=True)
 
-    rank_words = ["1位", "2位", "3位"]
+    rank_words = ["1位", "2位", "3位","4位"]
 
     text = "📊 **寮ランキング**\n\n"
     for i, (team, pts) in enumerate(sorted_teams):
@@ -163,3 +163,4 @@ async def myrank(interaction: discord.Interaction):
 # 起動
 # -----------------------------
 bot.run(TOKEN)
+
