@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 
 TOKEN = os.getenv("TOKEN")
-RANKING_CHANNEL_ID = 1237998528429555817  # rankチャンネルID
+RANKING_CHANNEL_ID = 1477729380556865750  # rankチャンネルID
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -147,3 +147,4 @@ async def myrank(interaction: discord.Interaction):
 # 起動
 # -----------------------------
 bot.run(TOKEN)
+
