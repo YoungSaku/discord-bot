@@ -56,54 +56,59 @@ def get_user_team(member):
 @bot.event
 async def on_voice_state_update(member, before, after):
 
-    # 入室
+    # ✅ 入室（1人でもカウント開始）
     if after.channel and not before.channel:
-        if len(after.channel.members) >= 2:
-            voice_times[member.id] = datetime.now()
+        voice_times[member.id] = datetime.now()
 
-    # 退室
+    # ✅ 退室
     if before.channel and not after.channel:
 
         if member.id in voice_times:
             start_time = voice_times.pop(member.id)
             minutes = int((datetime.now() - start_time).total_seconds() / 60)
 
-            # 抜けた後も1人以上いた場合
-            if len(before.channel.members) >= 1:
+            if minutes > 0:
+                # チーム加算
                 team = get_user_team(member)
                 if team:
                     team_points[team] += minutes
 
+                # 個人加算
                 user_points[str(member.id)] = user_points.get(str(member.id), 0) + minutes
+
                 save_points()
 
-        # VCが完全終了したらランキング送信（固定チャンネル）
+        # VCが空になったらランキング送信
         if len(before.channel.members) == 0:
             channel = bot.get_channel(RANKING_CHANNEL_ID)
             if channel:
                 await send_rankings(channel)
 
 # -----------------------------
-# ランキング生成
+# 表示フォーマット
 # -----------------------------
 def format_time(minutes):
     hours = minutes // 60
     mins = minutes % 60
     return f"{hours}時間{mins}分"
 
+# -----------------------------
+# ランキング生成
+# -----------------------------
 async def send_rankings(channel):
+
     sorted_teams = sorted(team_points.items(), key=lambda x: x[1], reverse=True)
     sorted_users = sorted(user_points.items(), key=lambda x: x[1], reverse=True)
 
     rank_words = ["1位", "2位", "3位","4位"]
 
-    # 寮ランキング（ポイント表示）
+    # 🔹 寮ランキング（pt表示）
     text = "📊 **寮ランキング**\n\n"
     for i, (team, pts) in enumerate(sorted_teams):
         medal = rank_words[i] if i < len(rank_words) else f"{i+1}位"
         text += f"{medal} {team} – {pts}pt\n"
 
-    # 個人ランキング（時間＋分表示）
+    # 🔹 個人ランキング（時間＋分表示）
     text += "\n👤 **個人ランキング TOP5**\n\n"
     for i, (user_id, pts) in enumerate(sorted_users[:5]):
         try:
@@ -116,7 +121,7 @@ async def send_rankings(channel):
     await channel.send(text)
 
 # -----------------------------
-# プレフィックスコマンド
+# コマンド
 # -----------------------------
 @bot.command(name="ranking")
 async def ranking(ctx):
@@ -124,6 +129,7 @@ async def ranking(ctx):
 
 @bot.command(name="myrank")
 async def myrank(ctx):
+
     user_id = str(ctx.author.id)
     sorted_users = sorted(user_points.items(), key=lambda x: x[1], reverse=True)
 
@@ -137,7 +143,7 @@ async def myrank(ctx):
         points = user_points[user_id]
         await ctx.send(f"あなたの順位は **{rank}位**（{format_time(points)}）です！")
     else:
-        await ctx.send("まだランクがありません")
+        await ctx.send("まだポイントがありません。")
 
 # -----------------------------
 # 起動
