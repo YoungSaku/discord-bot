@@ -1,103 +1,149 @@
 import discord
 from discord.ext import commands
-import time
 import json
 import os
+from datetime import datetime
 
-# ====== Intents ======
-intents = discord.Intents.default()
-intents.voice_states = True
-intents.members = True
-intents.message_content = True
+TOKEN = os.getenv("TOKEN")
+RANKING_CHANNEL_ID = 1237998528429555817  # rankチャンネルID
 
+intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ====== データ ======
-voice_start = {}
-team_points = {
-    "グリフィンドール": 0,
-    "スリザリン": 0,
-    "レイブンクロー": 0,
-    "ハッフルパフ": 0
+voice_times = {}
+team_points = {}
+user_points = {}
+
+TEAMS = {
+    "ぐりふぃんどーる": 0,
+    "すりざりん": 0,
+    "はっふるぱふ": 0,
+    "れいぶんくろー": 0
 }
 
-DATA_FILE = "points.json"
+# -----------------------------
+# データ読み込み
+# -----------------------------
+if os.path.exists("points.json"):
+    with open("points.json", "r") as f:
+        data = json.load(f)
+        team_points = data.get("teams", TEAMS.copy())
+        user_points = data.get("users", {})
+else:
+    team_points = TEAMS.copy()
 
-# ====== 保存・読み込み ======
 def save_points():
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(team_points, f, ensure_ascii=False)
+    with open("points.json", "w") as f:
+        json.dump({
+            "teams": team_points,
+            "users": user_points
+        }, f)
 
-def load_points():
-    global team_points
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            team_points = json.load(f)
-
-# ====== 寮判定 ======
-def get_team(member):
-    roles = [r.name for r in member.roles]
-
-    if "グリフィンドール" in roles:
-        return "グリフィンドール"
-    elif "スリザリン" in roles:
-        return "スリザリン"
-    elif "レイブンクロー" in roles:
-        return "レイブンクロー"
-    elif "ハッフルパフ" in roles:
-        return "ハッフルパフ"
-
+def get_user_team(member):
+    for role in member.roles:
+        if role.name in TEAMS:
+            return role.name
     return None
 
-# ====== 起動時 ======
+# -----------------------------
+# 起動時同期（スラッシュ）
+# -----------------------------
 @bot.event
 async def on_ready():
-    load_points()
+    await bot.tree.sync()
     print(f"Logged in as {bot.user}")
+    print("スラッシュコマンド同期完了")
 
-# ====== 通話監視 ======
+# -----------------------------
+# VC監視
+# -----------------------------
 @bot.event
 async def on_voice_state_update(member, before, after):
 
-    # 通話入室
-    if before.channel is None and after.channel is not None:
-        voice_start[member.id] = time.time()
+    # 入室
+    if after.channel and not before.channel:
+        if len(after.channel.members) >= 2:
+            voice_times[member.id] = datetime.now()
 
-    # 通話退出
-    elif before.channel is not None and after.channel is None:
-        start_time = voice_start.get(member.id)
+    # 退室
+    if before.channel and not after.channel:
 
-        if start_time:
-            duration = time.time() - start_time
-            minutes = int(duration // 60)  # 1分=1ポイント
+        if member.id in voice_times:
+            start_time = voice_times.pop(member.id)
+            minutes = int((datetime.now() - start_time).total_seconds() / 60)
 
-            team = get_team(member)
+            # 抜けた後も1人以上いた（2人以上で成立）
+            if len(before.channel.members) >= 1:
+                team = get_user_team(member)
+                if team:
+                    team_points[team] += minutes
 
-            if team and minutes > 0:
-                team_points[team] += minutes
+                user_points[str(member.id)] = user_points.get(str(member.id), 0) + minutes
                 save_points()
 
-            del voice_start[member.id]
+        # VCが完全終了したらランキング送信
+        if len(before.channel.members) == 0:
+            channel = bot.get_channel(RANKING_CHANNEL_ID)
+            if channel:
+                await send_rankings(channel)
 
-# ====== ポイント表示 ======
-@bot.command()
-async def points(ctx):
-    msg = "🏰 寮ポイント 🏰\n"
-    for team, point in team_points.items():
-        msg += f"{team}：{point} pt\n"
+# -----------------------------
+# ランキング生成
+# -----------------------------
+async def send_rankings(channel):
 
-    await ctx.send(msg)
-
-# ====== ランキング ======
-@bot.command()
-async def housecup(ctx):
     sorted_teams = sorted(team_points.items(), key=lambda x: x[1], reverse=True)
+    sorted_users = sorted(user_points.items(), key=lambda x: x[1], reverse=True)
 
-    msg = "🏆 ホグワーツ杯ランキング 🏆\n"
-    for i, (team, point) in enumerate(sorted_teams, 1):
-        msg += f"{i}. {team} - {point} pt\n"
+    medals = ["🥇", "🥈", "🥉"]
 
-    await ctx.send(msg)
+    text = "📊 **寮ランキング**\n\n"
 
-# ====== 起動 ======
-bot.run(os.getenv("TOKEN"))
+    for i, (team, pts) in enumerate(sorted_teams):
+        medal = medals[i] if i < 3 else f"{i+1}位"
+        text += f"{medal} {team} – {pts}pt\n"
+
+    text += "\n👤 **個人ランキング TOP5**\n\n"
+
+    for i, (user_id, pts) in enumerate(sorted_users[:5]):
+        try:
+            user = await bot.fetch_user(int(user_id))
+            medal = medals[i] if i < 3 else f"{i+1}位"
+            text += f"{medal} {user.name} – {pts}分\n"
+        except:
+            continue
+
+    await channel.send(text)
+
+# -----------------------------
+# スラッシュコマンド
+# -----------------------------
+@bot.tree.command(name="ranking", description="現在のランキングを見る")
+async def ranking(interaction: discord.Interaction):
+    await interaction.response.defer()
+    await send_rankings(interaction.channel)
+
+@bot.tree.command(name="myrank", description="自分の順位を見る")
+async def myrank(interaction: discord.Interaction):
+
+    user_id = str(interaction.user.id)
+    sorted_users = sorted(user_points.items(), key=lambda x: x[1], reverse=True)
+
+    rank = None
+    for i, (uid, pts) in enumerate(sorted_users):
+        if uid == user_id:
+            rank = i + 1
+            break
+
+    if rank:
+        points = user_points[user_id]
+        await interaction.response.send_message(
+            f"あなたの順位は **{rank}位**（{points}分）です！"
+        )
+    else:
+        await interaction.response.send_message("まだポイントがありません。")
+
+# -----------------------------
+# 起動
+# -----------------------------
+bot.run(TOKEN)
