@@ -8,7 +8,6 @@ from datetime import datetime
 # 設定
 # -----------------------------
 TOKEN = os.getenv("TOKEN")
-GUILD_ID = 1237998527981031456  # 対象サーバーIDに置き換え
 RANKING_CHANNEL_ID = 1477729380556865750  # ランキング送信先チャンネルID
 
 intents = discord.Intents.all()
@@ -52,16 +51,6 @@ def get_user_team(member):
     return None
 
 # -----------------------------
-# 起動時同期（ギルド単位）
-# -----------------------------
-@bot.event
-async def on_ready():
-    guild = discord.Object(id=GUILD_ID)
-    await bot.tree.sync(guild=guild)
-    print(f"Logged in as {bot.user}")
-    print("スラッシュコマンドをギルド単位で同期完了")
-
-# -----------------------------
 # VC監視
 # -----------------------------
 @bot.event
@@ -79,7 +68,7 @@ async def on_voice_state_update(member, before, after):
             start_time = voice_times.pop(member.id)
             minutes = int((datetime.now() - start_time).total_seconds() / 60)
 
-            # 抜けた後も1人以上いた場合（人数条件2人以上で開始しているので問題なし）
+            # 抜けた後も1人以上いた場合
             if len(before.channel.members) >= 1:
                 team = get_user_team(member)
                 if team:
@@ -97,52 +86,45 @@ async def on_voice_state_update(member, before, after):
 # -----------------------------
 # ランキング生成
 # -----------------------------
+def format_time(minutes):
+    hours = minutes // 60
+    mins = minutes % 60
+    return f"{hours}時間{mins}分"
+
 async def send_rankings(channel):
     sorted_teams = sorted(team_points.items(), key=lambda x: x[1], reverse=True)
     sorted_users = sorted(user_points.items(), key=lambda x: x[1], reverse=True)
 
     rank_words = ["1位", "2位", "3位","4位"]
 
+    # 寮ランキング（ポイント表示）
     text = "📊 **寮ランキング**\n\n"
     for i, (team, pts) in enumerate(sorted_teams):
         medal = rank_words[i] if i < len(rank_words) else f"{i+1}位"
         text += f"{medal} {team} – {pts}pt\n"
 
+    # 個人ランキング（時間＋分表示）
     text += "\n👤 **個人ランキング TOP5**\n\n"
     for i, (user_id, pts) in enumerate(sorted_users[:5]):
         try:
             user = await bot.fetch_user(int(user_id))
             medal = rank_words[i] if i < len(rank_words) else f"{i+1}位"
-            text += f"{medal} {user.name} – {pts}分\n"
+            text += f"{medal} {user.name} – {format_time(pts)}\n"
         except:
             continue
 
     await channel.send(text)
 
 # -----------------------------
-# スラッシュコマンド（ギルド単位、応答タイムアウト対策）
+# プレフィックスコマンド
 # -----------------------------
-@bot.tree.command(
-    name="ranking",
-    description="現在のランキングを見る",
-    guild=discord.Object(id=GUILD_ID)
-)
-async def ranking(interaction: discord.Interaction):
-    await interaction.response.defer()  # 3秒以内に応答準備
-    channel = bot.get_channel(RANKING_CHANNEL_ID)
-    if channel:
-        await send_rankings(channel)
-    await interaction.followup.send("ランキングを送信しました！")  # 応答完了
+@bot.command(name="ranking")
+async def ranking(ctx):
+    await send_rankings(ctx.channel)
 
-@bot.tree.command(
-    name="myrank",
-    description="自分の順位を見る",
-    guild=discord.Object(id=GUILD_ID)
-)
-async def myrank(interaction: discord.Interaction):
-    await interaction.response.defer()  # 応答準備
-    
-    user_id = str(interaction.user.id)
+@bot.command(name="myrank")
+async def myrank(ctx):
+    user_id = str(ctx.author.id)
     sorted_users = sorted(user_points.items(), key=lambda x: x[1], reverse=True)
 
     rank = None
@@ -153,14 +135,11 @@ async def myrank(interaction: discord.Interaction):
 
     if rank:
         points = user_points[user_id]
-        msg = f"あなたの順位は **{rank}位**（{points}分）です！"
+        await ctx.send(f"あなたの順位は **{rank}位**（{format_time(points)}）です！")
     else:
-        msg = "まだポイントがありません。"
-    
-    await interaction.followup.send(msg)
+        await ctx.send("まだランクがありません")
 
 # -----------------------------
 # 起動
 # -----------------------------
 bot.run(TOKEN)
-
