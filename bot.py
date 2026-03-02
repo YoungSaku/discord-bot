@@ -8,7 +8,7 @@ from datetime import datetime
 # 設定
 # -----------------------------
 TOKEN = os.getenv("TOKEN")
-GUILD_ID = 1237998527981031456  # 対象サーバーIDに置き換え
+GUILD_ID = 123456789012345678  # 対象サーバーIDに置き換え
 RANKING_CHANNEL_ID = 1477729380556865750  # ランキング送信先チャンネルID
 
 intents = discord.Intents.all()
@@ -79,7 +79,7 @@ async def on_voice_state_update(member, before, after):
             start_time = voice_times.pop(member.id)
             minutes = int((datetime.now() - start_time).total_seconds() / 60)
 
-            # 抜けた後も1人以上いた（2人以上で成立）
+            # 抜けた後も1人以上いた場合（人数条件2人以上で開始しているので問題なし）
             if len(before.channel.members) >= 1:
                 team = get_user_team(member)
                 if team:
@@ -101,18 +101,18 @@ async def send_rankings(channel):
     sorted_teams = sorted(team_points.items(), key=lambda x: x[1], reverse=True)
     sorted_users = sorted(user_points.items(), key=lambda x: x[1], reverse=True)
 
-    rank_words = ["1位", "2位", "3位","4位"]
+    rank_words = ["1位", "2位", "3位"]
 
     text = "📊 **寮ランキング**\n\n"
     for i, (team, pts) in enumerate(sorted_teams):
-        medal = rank_words[i] if i < 3 else f"{i+1}位"
+        medal = rank_words[i] if i < len(rank_words) else f"{i+1}位"
         text += f"{medal} {team} – {pts}pt\n"
 
     text += "\n👤 **個人ランキング TOP5**\n\n"
     for i, (user_id, pts) in enumerate(sorted_users[:5]):
         try:
             user = await bot.fetch_user(int(user_id))
-            medal = rank_words[i] if i < 3 else f"{i+1}位"
+            medal = rank_words[i] if i < len(rank_words) else f"{i+1}位"
             text += f"{medal} {user.name} – {pts}分\n"
         except:
             continue
@@ -120,7 +120,7 @@ async def send_rankings(channel):
     await channel.send(text)
 
 # -----------------------------
-# スラッシュコマンド（ギルド単位）
+# スラッシュコマンド（ギルド単位、応答タイムアウト対策）
 # -----------------------------
 @bot.tree.command(
     name="ranking",
@@ -128,10 +128,11 @@ async def send_rankings(channel):
     guild=discord.Object(id=GUILD_ID)
 )
 async def ranking(interaction: discord.Interaction):
-    await interaction.response.defer()
+    await interaction.response.defer()  # 3秒以内に応答準備
     channel = bot.get_channel(RANKING_CHANNEL_ID)
     if channel:
         await send_rankings(channel)
+    await interaction.followup.send("ランキングを送信しました！")  # 応答完了
 
 @bot.tree.command(
     name="myrank",
@@ -139,6 +140,8 @@ async def ranking(interaction: discord.Interaction):
     guild=discord.Object(id=GUILD_ID)
 )
 async def myrank(interaction: discord.Interaction):
+    await interaction.response.defer()  # 応答準備
+    
     user_id = str(interaction.user.id)
     sorted_users = sorted(user_points.items(), key=lambda x: x[1], reverse=True)
 
@@ -150,11 +153,11 @@ async def myrank(interaction: discord.Interaction):
 
     if rank:
         points = user_points[user_id]
-        await interaction.response.send_message(
-            f"あなたの順位は **{rank}位**（{points}分）です！"
-        )
+        msg = f"あなたの順位は **{rank}位**（{points}分）です！"
     else:
-        await interaction.response.send_message("まだポイントがありません。")
+        msg = "まだポイントがありません。"
+    
+    await interaction.followup.send(msg)
 
 # -----------------------------
 # 起動
